@@ -1,0 +1,122 @@
+@import url("https://fonts.googleapis.com/css2?family=Charm:wght@400;700&family=Noto+Serif+Thai:wght@400;500;600;700&family=Sarabun:wght@300;400;500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-sarabun: "Sarabun", "Prompt", "Noto Sans Thai", "Leelawadee UI", sans-serif;
+  --font-serif-thai: "Noto Serif Thai", "Charm", "Sarabun", serif;
+  --font-charm: "Charm", "Noto Serif Thai", serif;
+}
+
+@layer utilities {
+  .animate-bob {
+    animation: bob 4.2s ease-in-out infinite;
+  }
+
+  .animate-flame {
+    animation: flameFlicker 0.95s ease-in-out infinite;
+  }
+
+  .animate-smoke {
+    animation: smokeRise 3.4s ease-in-out infinite;
+  }
+
+  .heritage-panel {
+    background-color: rgba(14, 11, 8, 0.86);
+    border: 1px solid rgba(201, 164, 97, 0.34);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.72), inset 0 1px 0 rgba(229, 201, 139, 0.12);
+    backdrop-filter: blur(14px);
+  }
+}
+
+@keyframes bob {
+  0%,
+  100% {
+    transform: translateY(0px) rotate(-0.9deg);
+  }
+  50% {
+    transform: translateY(-4.5px) rotate(1deg);
+  }
+}
+
+@keyframes flameFlicker {
+  0%,
+  100% {
+    transform: scaleY(1) scaleX(1) skewX(0deg);
+  }
+  33% {
+    transform: scaleY(1.07) scaleX(0.94) skewX(-2deg);
+  }
+  66% {
+    transform: scaleY(0.95) scaleX(1.05) skewX(2deg);
+  }
+}
+
+@keyframes smokeRise {
+  0% {
+    transform: translateY(2px) scaleX(1);
+    opacity: 0.22;
+  }
+  50% {
+    transform: translateY(-6px) scaleX(1.06);
+    opacity: 0.44;
+  }
+  100% {
+    transform: translateY(-13px) scaleX(0.95);
+    opacity: 0.1;
+  }
+}
+
+@keyframes krathongDrift {
+  0% {
+    transform: translate3d(-220px, 0, 0);
+  }
+  100% {
+    transform: translate3d(calc(100vw + 220px), 0, 0);
+  }
+}
+
+@keyframes lanternRise {
+  0% {
+    transform: translate3d(0, 44vh, 0) scale(0.7);
+    opacity: 0;
+  }
+  14% {
+    opacity: 0.92;
+  }
+  50% {
+    transform: translate3d(-16px, 8vh, 0) scale(0.9);
+    opacity: 0.92;
+  }
+  85% {
+    opacity: 0.8;
+  }
+  100% {
+    transform: translate3d(22px, -36vh, 0) scale(1.04);
+    opacity: 0;
+  }
+}
+
+.krathong-lane-drift {
+  animation-name: krathongDrift;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  will-change: transform;
+}
+
+.krathong-lane-drift:hover {
+  animation-play-state: paused;
+}
+
+.lantern-sky-rise {
+  animation-name: lanternRise;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  will-change: transform, opacity;
+}
+
+.lantern-sky-rise:hover {
+  animation-play-state: paused;
+}

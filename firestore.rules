@@ -1,0 +1,266 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Public, anonymous (no-login) Loy Krathong interactive web app.
+    // No PII or user account fields are stored in Firestore.
+    //
+    // Collection: krathongs
+    // Document ID: Auto-generated krathongId
+    // Fields (all required, strict schema via hasOnly + hasAll):
+    //   - name: string (1..50 chars, non-empty after trim) - Creator name
+    //   - wish: string (1..300 chars, non-empty after trim) - Krathong wish
+    //   - base: string (enum: banana-leaf | lotus-pink | bread-turtle | ice-crystal | coconut-shell)
+    //   - flower: string (enum: marigold | orchid | jasmine-rose | lotus-petal | colorful-mix)
+    //   - candle: string (enum: gold-wealth | pink-love | blue-peace | purple-career | white-purity)
+    //   - topping: string (enum: coin | mini-garland | butterfly | heart-charm | none)
+    //   - likes: int (must be 0 on create; only field updatable, +1 per update)
+    //   - lane: int (0..3) - River lane index
+    //   - createdAt: timestamp | int (Firestore Timestamp or positive epoch ms int)
+    //
+    // Collection: lanterns
+    // Document ID: Auto-generated lanternId
+    // Fields (all required, strict schema via hasOnly + hasAll):
+    //   - name: string (1..50 chars, non-empty after trim) - Creator name
+    //   - wish: string (1..160 chars, non-empty after trim) - Sky lantern wish
+    //   - color: string (1..20 chars, non-empty after trim) - Lantern color key/hex
+    //   - createdAt: timestamp | int (Firestore Timestamp or positive epoch ms int)
+    //
+    // Collection: rooms
+    // Document ID: roomCode matching ^[A-Z0-9]{4,12}$ (unenumerable: list disabled)
+    // Fields (all required, strict schema via hasOnly + hasAll, immutable once created):
+    //   - name: string (1..60 chars, non-empty after trim) - Private room display name
+    //   - createdBy: string (1..50 chars, non-empty after trim) - Host display name
+    //   - createdAt: timestamp | int (Firestore Timestamp or positive epoch ms int)
+    //
+    // Subcollection: rooms/{roomCode}/krathongs
+    // Document ID: Auto-generated krathongId
+    // Fields: Same strict schema as top-level `krathongs` collection
+    //
+    // Subcollection: rooms/{roomCode}/lanterns
+    // Document ID: Auto-generated lanternId
+    // Fields: Same strict schema as top-level `lanterns` collection
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    // Check if the request carries an authenticated Firebase Auth token
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Check if the authenticated user matches the target userId
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Enforce exact field set (no missing required fields, no extraneous fields)
+    function hasExactFields(data, fields) {
+      return data.keys().hasOnly(fields) && data.keys().hasAll(fields);
+    }
+
+    // Validate a non-empty string within [minLen, maxLen] bounds (prevents 1MB DoS & blank strings)
+    function isValidNonEmptyString(value, minLen, maxLen) {
+      return value is string &&
+             value.size() >= minLen &&
+             value.size() <= maxLen &&
+             value.trim().size() >= 1;
+    }
+
+    // Validate createdAt accepts Firestore serverTimestamp()/Timestamp or positive epoch ms int
+    function isValidCreatedAt(value) {
+      return value is timestamp || (value is int && value > 0);
+    }
+
+    // Validate private room code format (4 to 12 uppercase alphanumeric characters)
+    function isValidRoomCode(roomCode) {
+      return roomCode is string && roomCode.matches('^[A-Z0-9]{4,12}$');
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    // Validate full Krathong document schema, types, enums, and numeric ranges
+    function isValidKrathong(data) {
+      let expectedFields = [
+        'name',
+        'wish',
+        'base',
+        'flower',
+        'candle',
+        'topping',
+        'likes',
+        'lane',
+        'createdAt'
+      ];
+      let validBases = [
+        'banana-leaf',
+        'lotus-pink',
+        'bread-turtle',
+        'ice-crystal',
+        'coconut-shell'
+      ];
+      let validFlowers = [
+        'marigold',
+        'orchid',
+        'jasmine-rose',
+        'lotus-petal',
+        'colorful-mix'
+      ];
+      let validCandles = [
+        'gold-wealth',
+        'pink-love',
+        'blue-peace',
+        'purple-career',
+        'white-purity'
+      ];
+      let validToppings = [
+        'coin',
+        'mini-garland',
+        'butterfly',
+        'heart-charm',
+        'none'
+      ];
+
+      return hasExactFields(data, expectedFields) &&
+             isValidNonEmptyString(data.name, 1, 50) &&
+             isValidNonEmptyString(data.wish, 1, 300) &&
+             data.base is string && data.base in validBases &&
+             data.flower is string && data.flower in validFlowers &&
+             data.candle is string && data.candle in validCandles &&
+             data.topping is string && data.topping in validToppings &&
+             data.likes is int && data.likes >= 0 &&
+             data.lane is int && data.lane >= 0 && data.lane <= 3 &&
+             isValidCreatedAt(data.createdAt);
+    }
+
+    // Validate Krathong update modifies ONLY likes by +1
+    function isValidKrathongLikeIncrement() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes']) &&
+             'likes' in resource.data &&
+             resource.data.likes is int &&
+             request.resource.data.likes is int &&
+             request.resource.data.likes == resource.data.likes + 1;
+    }
+
+    // Validate full Lantern document schema, types, and bounds
+    function isValidLantern(data) {
+      let expectedFields = ['name', 'wish', 'color', 'createdAt'];
+
+      return hasExactFields(data, expectedFields) &&
+             isValidNonEmptyString(data.name, 1, 50) &&
+             isValidNonEmptyString(data.wish, 1, 160) &&
+             isValidNonEmptyString(data.color, 1, 20) &&
+             isValidCreatedAt(data.createdAt);
+    }
+
+    // Validate full Private Room document schema, types, and string bounds
+    function isValidPrivateRoom(data) {
+      let expectedFields = ['name', 'createdBy', 'createdAt'];
+
+      return hasExactFields(data, expectedFields) &&
+             isValidNonEmptyString(data.name, 1, 60) &&
+             isValidNonEmptyString(data.createdBy, 1, 50) &&
+             isValidCreatedAt(data.createdAt);
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    // Community river krathongs
+    match /krathongs/{krathongId} {
+      // Public read access for viewing and streaming river krathongs
+      allow get, list: if true;
+
+      // Public create with strict schema validation and initial likes == 0
+      allow create: if isValidKrathong(request.resource.data) &&
+                       request.resource.data.likes == 0;
+
+      // Public update strictly restricted to incrementing likes by +1
+      allow update: if isValidKrathong(request.resource.data) &&
+                       isValidKrathongLikeIncrement();
+
+      // Deletion disabled
+      allow delete: if false;
+    }
+
+    // Community sky lanterns
+    match /lanterns/{lanternId} {
+      // Public read access for viewing and streaming sky lanterns
+      allow get, list: if true;
+
+      // Public create with strict schema validation
+      allow create: if isValidLantern(request.resource.data);
+
+      // Immutable once released
+      allow update, delete: if false;
+    }
+
+    // Private ceremony rooms (unenumerable by list; accessible only with a valid roomCode)
+    match /rooms/{roomCode} {
+      // Allow single-document fetch when roomCode format is valid
+      allow get: if isValidRoomCode(roomCode);
+
+      // Keep room codes unenumerable so strangers cannot list private rooms
+      allow list: if false;
+
+      // Allow creating a private room with valid roomCode format and strict schema
+      allow create: if isValidRoomCode(roomCode) &&
+                       isValidPrivateRoom(request.resource.data);
+
+      // Room metadata is immutable once created; deletion disabled
+      allow update, delete: if false;
+
+      // Private room krathongs
+      match /krathongs/{krathongId} {
+        // Read and stream krathongs within a validly addressed private room
+        allow get, list: if isValidRoomCode(roomCode);
+
+        // Create with strict schema validation and initial likes == 0
+        allow create: if isValidRoomCode(roomCode) &&
+                         isValidKrathong(request.resource.data) &&
+                         request.resource.data.likes == 0;
+
+        // Update strictly restricted to incrementing likes by +1
+        allow update: if isValidRoomCode(roomCode) &&
+                         isValidKrathong(request.resource.data) &&
+                         isValidKrathongLikeIncrement();
+
+        // Deletion disabled
+        allow delete: if false;
+      }
+
+      // Private room sky lanterns
+      match /lanterns/{lanternId} {
+        // Read and stream sky lanterns within a validly addressed private room
+        allow get, list: if isValidRoomCode(roomCode);
+
+        // Create with strict schema validation
+        allow create: if isValidRoomCode(roomCode) &&
+                         isValidLantern(request.resource.data);
+
+        // Immutable once released
+        allow update, delete: if false;
+      }
+    }
+
+    // ===============================================================
+    // Default Deny Fallback
+    // ===============================================================
+
+    // Deny all reads and writes on any other collection or subcollection path
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
